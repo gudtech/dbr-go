@@ -14,6 +14,9 @@ import (
 )
 
 type Common struct {
+	config OpenConfig
+	configLock sync.Mutex
+
 	// Database reference named by DBR_gt.conf
 	bootDB          *sql.DB
 	commonDbrConfig DbrInstance
@@ -30,19 +33,19 @@ type Common struct {
 }
 
 type OpenConfig struct {
-    ConfigPath string
-    // Read all accounts in dbr_instances tables
-    ReadAccounts bool
-    // Read credentials for accounts (if set to false, then dbr configs will have empty strings for username/password)
-    ReadCredentials bool
+	ConfigPath string
+	// Read all accounts in dbr_instances tables
+	ReadAccounts bool
+	// Read credentials for accounts (if set to false, then dbr configs will have empty strings for username/password)
+	ReadCredentials bool
 }
 
 func DefaultOpenConfig() OpenConfig {
-    return OpenConfig {
-        ConfigPath: "",
-        ReadAccounts: false,
-        ReadCredentials: false,
-    }
+	return OpenConfig {
+		ConfigPath: "",
+		ReadAccounts: false,
+		ReadCredentials: false,
+	}
 }
 
 func Open(ctx context.Context, config OpenConfig) (*Common, error) {
@@ -55,6 +58,7 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 
 	var dbrconf DbrInstance
 	p := new(Common)
+	p.SetConfig(config)
 	p.accounts = make(map[int]*Account)
 	p.accountDB = make(map[string]*sql.DB)
 	p.enum = make(map[string]int)
@@ -104,8 +108,9 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 		return nil, fmt.Errorf("failed to load DBR enum information: %s", err)
 	}
 
-	if config.ReadAccounts {
-		err := p.ReadAccounts(ctx, config.ReadCredentials)
+	commonConfig := p.Config()
+	if commonConfig.ReadAccounts {
+		err := p.ReadAccounts(ctx, commonConfig.ReadCredentials)
 		if err != nil {
 			_ = p.bootDB.Close()
 			return nil, fmt.Errorf("failed to load DBR instances: %s", err)
@@ -245,10 +250,10 @@ func (p *Common) Account(id int) *Account {
 	}
 }
 
-func (p *Common) RetryAccount(ctx context.Context, id int, config OpenConfig) (*Account, error) {
+func (p *Common) RetryAccount(ctx context.Context, id int) (*Account, error) {
 	a := p.Account(id)
 	if a == nil {
-		err := p.ReadAccounts(ctx, config.ReadCredentials)
+		err := p.ReadAccounts(ctx, p.Config().ReadCredentials)
 		if err != nil {
 			return nil, err
 		}
@@ -309,10 +314,10 @@ func (p *Common) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 }
 
 func (p *Common) ReadAccounts(ctx context.Context, readCredentials bool) error {
-    query := "SELECT handle, username, password, dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
-    if !readCredentials {
-        query = "SELECT handle, '', '', dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
-    }
+	query := "SELECT handle, username, password, dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
+	if !readCredentials {
+		query = "SELECT handle, '', '', dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
+	}
 
 	// Load additional instance(s) from dbr.dbr_instances
 	irows := QueryContext(ctx, p.bootDB, nil, query)
@@ -404,4 +409,16 @@ func (common *Common) PrivByName(ctx context.Context, name string) (int, error) 
 	}
 
 	return id, nil
+}
+
+func (common *Common) Config() OpenConfig {
+	common.configLock.Lock()
+	defer common.configLock.Unlock()
+	return common.config
+}
+
+func (common *Common) SetConfig(config OpenConfig) {
+	common.configLock.Lock()
+	defer common.configLock.Unlock()
+	common.config = config
 }
