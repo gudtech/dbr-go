@@ -32,7 +32,7 @@ type Common struct {
 type OpenConfig struct {
     ConfigPath string
     // Read all accounts in dbr_instances tables
-    DbrExpand bool
+    ReadAccounts bool
     // Read credentials for accounts (if set to false, then dbr configs will have empty strings for username/password)
     ReadCredentials bool
 }
@@ -40,7 +40,7 @@ type OpenConfig struct {
 func DefaultOpenConfig() OpenConfig {
     return OpenConfig {
         ConfigPath: "",
-        DbrExpand: false,
+        ReadAccounts: false,
         ReadCredentials: false,
     }
 }
@@ -104,7 +104,7 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 		return nil, fmt.Errorf("failed to load DBR enum information: %s", err)
 	}
 
-	if config.DbrExpand {
+	if config.ReadAccounts {
 		err := p.ReadAccounts(ctx, config.ReadCredentials)
 		if err != nil {
 			_ = p.bootDB.Close()
