@@ -29,10 +29,26 @@ type Common struct {
 	enumLock   sync.RWMutex
 }
 
-func Open(ctx context.Context, confPath string, dbrExpand bool) (*Common, error) {
-	conftext, err := ioutil.ReadFile(confPath)
+type OpenConfig struct {
+    ConfigPath string
+    // Read all accounts in dbr_instances tables
+    DbrExpand bool
+    // Read credentials for accounts (if set to false, then dbr configs will have empty strings for username/password)
+    ReadCredentials bool
+}
+
+func DefaultOpenConfig() OpenConfig {
+    return OpenConfig {
+        ConfigPath: "",
+        DbrExpand: false,
+        ReadCredentials: false,
+    }
+}
+
+func Open(ctx context.Context, config OpenConfig) (*Common, error) {
+	conftext, err := ioutil.ReadFile(config.ConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %s", confPath, err)
+		return nil, fmt.Errorf("cannot read %s: %s", config.ConfigPath, err)
 	}
 
 	// Load the bootstrap instance from the DBR_gt.conf
@@ -88,8 +104,8 @@ func Open(ctx context.Context, confPath string, dbrExpand bool) (*Common, error)
 		return nil, fmt.Errorf("failed to load DBR enum information: %s", err)
 	}
 
-	if dbrExpand {
-		err := p.ReadAccounts(ctx)
+	if config.DbrExpand {
+		err := p.ReadAccounts(ctx, config.ReadCredentials)
 		if err != nil {
 			_ = p.bootDB.Close()
 			return nil, fmt.Errorf("failed to load DBR instances: %s", err)
@@ -229,10 +245,10 @@ func (p *Common) Account(id int) *Account {
 	}
 }
 
-func (p *Common) RetryAccount(ctx context.Context, id int) (*Account, error) {
+func (p *Common) RetryAccount(ctx context.Context, id int, config OpenConfig) (*Account, error) {
 	a := p.Account(id)
 	if a == nil {
-		err := p.ReadAccounts(ctx)
+		err := p.ReadAccounts(ctx, config.ReadCredentials)
 		if err != nil {
 			return nil, err
 		}
@@ -292,9 +308,14 @@ func (p *Common) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 	return p.bootDB.BeginTx(ctx, options)
 }
 
-func (p *Common) ReadAccounts(ctx context.Context) error {
+func (p *Common) ReadAccounts(ctx context.Context, readCredentials bool) error {
+    query := "SELECT handle, username, password, dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
+    if !readCredentials {
+        query = "SELECT handle, '', '', dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
+    }
+
 	// Load additional instance(s) from dbr.dbr_instances
-	irows := QueryContext(ctx, p.bootDB, nil, "SELECT handle, username, password, dbname, dbfile, host, module, tag FROM dbr.dbr_instances")
+	irows := QueryContext(ctx, p.bootDB, nil, query)
 	defer irows.Close()
 
 	var i DbrInstance
