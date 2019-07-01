@@ -13,8 +13,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+var RestrictedReadAccounts = fmt.Errorf("common database config does not allow reading accounts")
+
 type Common struct {
-	config OpenConfig
+	config     OpenConfig
 	configLock sync.Mutex
 
 	// Database reference named by DBR_gt.conf
@@ -41,9 +43,9 @@ type OpenConfig struct {
 }
 
 func DefaultOpenConfig() OpenConfig {
-	return OpenConfig {
-		ConfigPath: "",
-		ReadAccounts: false,
+	return OpenConfig{
+		ConfigPath:      "",
+		ReadAccounts:    false,
 		ReadCredentials: false,
 	}
 }
@@ -108,16 +110,13 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 		return nil, fmt.Errorf("failed to load DBR enum information: %s", err)
 	}
 
-	commonConfig := p.Config()
-	if commonConfig.ReadAccounts {
-		err := p.ReadAccounts(ctx, commonConfig.ReadCredentials)
+	if p.Config().ReadAccounts {
+		err := p.ReadAccounts(ctx)
 		if err != nil {
 			_ = p.bootDB.Close()
 			return nil, fmt.Errorf("failed to load DBR instances: %s", err)
 		}
-
 	}
-
 	return p, nil
 }
 
@@ -253,12 +252,14 @@ func (p *Common) Account(id int) *Account {
 func (p *Common) RetryAccount(ctx context.Context, id int) (*Account, error) {
 	a := p.Account(id)
 	if a == nil {
-		err := p.ReadAccounts(ctx, p.Config().ReadCredentials)
-		if err != nil {
-			return nil, err
-		}
+		if p.Config().ReadAccounts {
+			err := p.ReadAccounts(ctx)
+			if err != nil {
+				return nil, err
+			}
 
-		a = p.Account(id)
+			a = p.Account(id)
+		}
 	}
 
 	return a, nil
@@ -313,9 +314,15 @@ func (p *Common) BeginTx(ctx context.Context, options *sql.TxOptions) (*sql.Tx, 
 	return p.bootDB.BeginTx(ctx, options)
 }
 
-func (p *Common) ReadAccounts(ctx context.Context, readCredentials bool) error {
+func (p *Common) ReadAccounts(ctx context.Context) error {
+	config := p.Config()
+
+	if !config.ReadAccounts {
+		return RestrictedReadAccounts
+	}
+
 	query := "SELECT handle, username, password, dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
-	if !readCredentials {
+	if !p.Config().ReadCredentials {
 		query = "SELECT handle, '', '', dbname, dbfile, host, module, tag FROM dbr.dbr_instances"
 	}
 
