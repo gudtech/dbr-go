@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,7 +13,11 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-var RestrictedReadAccounts = fmt.Errorf("common database config does not allow reading accounts")
+// RestrictedReadAccounts is part of the public API; renaming to the ErrFoo
+// convention would be a breaking change for consumers, so ST1012 is suppressed.
+//
+//nolint:staticcheck // ST1012: exported identifier kept stable for API compatibility
+var RestrictedReadAccounts = errors.New("common database config does not allow reading accounts")
 
 type Common struct {
 	config     OpenConfig
@@ -51,7 +55,7 @@ func DefaultOpenConfig() OpenConfig {
 }
 
 func Open(ctx context.Context, config OpenConfig) (*Common, error) {
-	conftext, err := ioutil.ReadFile(config.ConfigPath)
+	conftext, err := os.ReadFile(config.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %s", config.ConfigPath, err)
 	}
@@ -70,7 +74,7 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 	for _, line := range strings.Split(string(conftext), "\n") {
 		nocomment := strings.TrimSpace(strings.Split(line, "#")[0])
 		if strings.HasPrefix(nocomment, "---") {
-			return nil, errors.New("Multi-section DBR configs not supported")
+			return nil, errors.New("multi-section DBR configs not supported")
 		}
 
 		for _, part := range strings.Split(nocomment, ";") {
@@ -121,7 +125,7 @@ func Open(ctx context.Context, config OpenConfig) (*Common, error) {
 }
 
 func ReadGtutilConfig(filename string) (map[string]string, error) {
-	text, err := ioutil.ReadFile(filename)
+	text, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read %s: %s", filename, err)
 	}
@@ -187,7 +191,7 @@ func (p *Common) OpenInstance(i *DbrInstance) (*sql.DB, error) {
 	defer p.accountDBLock.Unlock()
 
 	if p.closing {
-		return nil, errors.New("Pool being closed")
+		return nil, errors.New("pool being closed")
 	}
 
 	if db := p.accountDB[dsn]; db != nil {

@@ -118,7 +118,7 @@ func (a *Account) DB() (*sql.DB, error) {
 }
 
 func (a *Account) QueryPrep(query string) string {
-	return strings.Replace(strings.Replace(query, "{config}", a.config.dbname, -1), "{ops}", a.ops.dbname, -1)
+	return strings.ReplaceAll(strings.ReplaceAll(query, "{config}", a.config.dbname), "{ops}", a.ops.dbname)
 }
 
 func (a *Account) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
